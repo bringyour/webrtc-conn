@@ -9,9 +9,14 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
+const defaultMaxBuffered = 8192
+
 type conn struct {
-	dataChannel *webrtc.DataChannel
-	messageChan chan webrtc.DataChannelMessage
+	dataChannel  *webrtc.DataChannel
+	messageChan  chan webrtc.DataChannelMessage
+	maxBuffered  uint64
+	writeChannel chan []byte
+	ctx          context.Context
 }
 
 type OfferOptions struct {
@@ -222,15 +227,58 @@ func Offer(
 	select {
 	case <-openContext.Done():
 		return nil, fmt.Errorf("data channel did not open within %s: %w", opts.openTimeout(), ctx.Err())
-	case _, _ = <-opened:
+	case <-opened:
 		// Data channel is open
 	}
 
-	return &conn{
-		dataChannel: dataChannel,
-		messageChan: messageChan,
-	}, nil
+	co := &conn{
+		dataChannel:  dataChannel,
+		messageChan:  messageChan,
+		maxBuffered:  defaultMaxBuffered,
+		writeChannel: make(chan []byte, 16),
+		ctx:          ctx,
+	}
 
+	go co.writingProcess(ctx)
+
+	return co, nil
+
+}
+
+func (c *conn) writingProcess(ctx context.Context) {
+
+	sendMoreCh := make(chan struct{}, 1)
+
+	c.dataChannel.SetBufferedAmountLowThreshold(c.maxBuffered)
+	c.dataChannel.OnBufferedAmountLow(func() {
+		select {
+		case <-ctx.Done():
+			return
+		case sendMoreCh <- struct{}{}:
+		default:
+		}
+	})
+
+	for {
+
+		select {
+		case <-ctx.Done():
+			return
+		case d := <-c.writeChannel:
+			err := c.dataChannel.Send(d)
+			if err != nil {
+				return
+			}
+
+			if c.dataChannel.BufferedAmount() > c.maxBuffered {
+				select {
+				case <-ctx.Done():
+					return
+				case <-sendMoreCh:
+				}
+			}
+		}
+	}
 }
 
 func (c *conn) Read(b []byte) (n int, err error) {
@@ -247,11 +295,12 @@ func (c *conn) Read(b []byte) (n int, err error) {
 }
 
 func (c *conn) Write(b []byte) (n int, err error) {
-	err = c.dataChannel.Send(b)
-	if err != nil {
-		return 0, fmt.Errorf("cannot send message: %w", err)
+	select {
+	case <-c.ctx.Done():
+		return 0, fmt.Errorf("context cancelled")
+	case c.writeChannel <- b:
+		return len(b), nil
 	}
-	return len(b), nil
 }
 
 // Close closes the connection.

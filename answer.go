@@ -210,9 +210,16 @@ func Answer(
 		}
 	})
 
-	return &conn{
-		dataChannel: dataChannel,
-		messageChan: messageChan,
-	}, nil
+	co := &conn{
+		dataChannel:  dataChannel,
+		messageChan:  messageChan,
+		maxBuffered:  defaultMaxBuffered,
+		writeChannel: make(chan []byte, 16),
+		ctx:          ctx,
+	}
+
+	go co.writingProcess(ctx)
+
+	return co, nil
 
 }
