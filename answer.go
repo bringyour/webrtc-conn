@@ -88,6 +88,11 @@ func Answer(
 		return nil, fmt.Errorf("cannot create peer connection: %w", err)
 	}
 
+	go func() {
+		<-ctx.Done()
+		_ = peerConnection.Close()
+	}()
+
 	// Set the handler for Peer connection state
 	// This will notify you when the peer has connected/disconnected
 	peerConnection.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {

@@ -127,6 +127,11 @@ func Offer(
 		}
 	})
 
+	go func() {
+		<-ctx.Done()
+		_ = peerConnection.Close()
+	}()
+
 	// Create a datachannel with label 'data'
 	dataChannel, err := peerConnection.CreateDataChannel("data", &webrtc.DataChannelInit{
 		Ordered:        &opts.Ordered,
