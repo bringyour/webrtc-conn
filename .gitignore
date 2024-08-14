@@ -1,0 +1,15 @@
+**/bin
+**/build
+**/.DS_Store
+
+# binaries
+client/build
+bringyourctl/bringyourctl
+api/api
+taskworker/taskworker
+gpt/gpt
+connect/connect
+connect/connect.test
+
+.vscode/*
+.direnv
