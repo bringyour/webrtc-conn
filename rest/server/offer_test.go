@@ -32,7 +32,7 @@ func TestSendOffer(t *testing.T) {
 	req, err := http.NewRequestWithContext(
 		testCtx,
 		"POST",
-		u.JoinPath("abc/offer/").String(),
+		u.JoinPath("abc/offer/sdp/").String(),
 		strings.NewReader(`{"type":"offer","sdp":"v=0"}`),
 	)
 	require.NoError(err)
@@ -71,7 +71,7 @@ func TestReceiveOffer(t *testing.T) {
 	req, err := http.NewRequestWithContext(
 		testCtx,
 		"GET",
-		u.JoinPath("abc/offer/").String(),
+		u.JoinPath("abc/offer/sdp/").String(),
 		nil,
 	)
 	require.NoError(err)
