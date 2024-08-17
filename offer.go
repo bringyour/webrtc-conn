@@ -162,6 +162,8 @@ func Offer(
 		return nil, fmt.Errorf("cannot set local description: %w", err)
 	}
 
+	fmt.Println("Offer created")
+
 	// Send the offer
 	select {
 	case <-ctx.Done():
