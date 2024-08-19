@@ -4,171 +4,60 @@ import (
 	"context"
 	"fmt"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/bringyour/webrtc-conn/rest/client"
 	"github.com/bringyour/webrtc-conn/rest/server"
+	"github.com/bringyour/webrtc-conn/rest/server/store/redisstore"
 	"github.com/pion/webrtc/v3"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 	"golang.org/x/sync/errgroup"
 )
 
-// mockExchangeStore is a mock implementation of the ExchangeStore interface.
-type mockExchangeStore struct {
-	offer            map[string]string
-	answer           map[string]string
-	offerCandidates  map[string][]string
-	answerCandidates map[string][]string
-	mu               *sync.Mutex
-	cond             *sync.Cond
-}
-
-func newMockExchangeStore() *mockExchangeStore {
-	mu := &sync.Mutex{}
-	return &mockExchangeStore{
-		offer:            make(map[string]string),
-		answer:           make(map[string]string),
-		offerCandidates:  make(map[string][]string),
-		answerCandidates: make(map[string][]string),
-		mu:               mu,
-		cond:             sync.NewCond(mu),
-	}
-}
-
-func (m *mockExchangeStore) GetOffer(ctx context.Context, id string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	context.AfterFunc(ctx, func() {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		m.cond.Broadcast()
-	})
-
-	for {
-		offer, ok := m.offer[id]
-		if ok {
-			return offer, nil
-		}
-
-		m.cond.Wait()
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-	}
-
-}
-
-func (m *mockExchangeStore) SetOffer(ctx context.Context, id, sdp string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.offer[id] = sdp
-	m.cond.Broadcast()
-	return nil
-}
-
-func (m *mockExchangeStore) GetAnswer(ctx context.Context, id string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	context.AfterFunc(ctx, func() {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		m.cond.Broadcast()
-	})
-
-	for {
-		answer, ok := m.answer[id]
-		if ok {
-			return answer, nil
-		}
-
-		m.cond.Wait()
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-	}
-
-}
-
-func (m *mockExchangeStore) SetAnswer(ctx context.Context, id, sdp string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.answer[id] = sdp
-	m.cond.Broadcast()
-	return nil
-}
-
-func (m *mockExchangeStore) AddOfferICEPeerCandidate(ctx context.Context, id, candidate string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.offerCandidates[id] = append(m.offerCandidates[id], candidate)
-	m.cond.Broadcast()
-	return nil
-}
-
-func (m *mockExchangeStore) AddAnswerICEPeerCandidate(ctx context.Context, id, candidate string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.answerCandidates[id] = append(m.answerCandidates[id], candidate)
-	m.cond.Broadcast()
-	return nil
-}
-
-func (m *mockExchangeStore) GetOfferICEPeerCandidates(ctx context.Context, id string, seenSoFar int) ([]string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	context.AfterFunc(ctx, func() {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		m.cond.Broadcast()
-	})
-
-	for {
-		candidates, ok := m.offerCandidates[id]
-		if ok && len(candidates) > seenSoFar {
-			return candidates[seenSoFar:], nil
-		}
-
-		m.cond.Wait()
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-	}
-}
-
-func (m *mockExchangeStore) GetAnswerICEPeerCandidates(ctx context.Context, id string, seenSoFar int) ([]string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	context.AfterFunc(ctx, func() {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		m.cond.Broadcast()
-	})
-
-	for {
-		candidates, ok := m.answerCandidates[id]
-		if ok && len(candidates) > seenSoFar {
-			return candidates[seenSoFar:], nil
-		}
-
-		m.cond.Wait()
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-	}
-}
-
 func TestEndToEnd(t *testing.T) {
-	s := httptest.NewServer(server.NewHandler(newMockExchangeStore()))
-	defer s.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	req := testcontainers.ContainerRequest{
+		Image:        "redis:latest",
+		ExposedPorts: []string{"6379/tcp"},
+		WaitingFor:   wait.ForLog("Ready to accept connections"),
+	}
+	redisC, err := testcontainers.GenericContainer(
+		ctx,
+		testcontainers.GenericContainerRequest{
+			ContainerRequest: req,
+			Started:          true,
+		},
+	)
+	if err != nil {
+		t.Fatalf("Could not start redis: %s", err)
+	}
+
+	defer func() {
+		err := redisC.Terminate(context.Background())
+		if err != nil {
+			t.Fatalf("Could not stop redis: %s", err)
+		}
+	}()
+
+	ep, err := redisC.Endpoint(ctx, "")
+	require.NoError(t, err)
+
+	st := redisstore.NewExchangeStore(
+		"test:",
+		&redis.Options{
+			Addr: ep,
+		},
+	)
+
+	s := httptest.NewServer(server.NewHandler(st))
+	defer s.Close()
 
 	wg, ctx := errgroup.WithContext(ctx)
 
@@ -218,7 +107,7 @@ func TestEndToEnd(t *testing.T) {
 		return c.Close()
 	})
 
-	err := wg.Wait()
+	err = wg.Wait()
 	require.NoError(t, err)
 
 	require.Equal(t, "hello from offer", answerReceived)
