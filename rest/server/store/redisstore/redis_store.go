@@ -3,9 +3,12 @@ package redisstore
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
+
+const objectExpire = 60 * time.Second
 
 type ExchangeStore struct {
 	keyPrefix string
@@ -62,6 +65,7 @@ func (e *ExchangeStore) SetOffer(ctx context.Context, id, sdp string) error {
 
 	pipeline := e.cl.Pipeline()
 	pipeline.Set(ctx, offerKey, sdp, 0)
+	pipeline.Expire(ctx, offerKey, objectExpire)
 	pipeline.Publish(ctx, offerKey, "sent")
 	_, err := pipeline.Exec(ctx)
 
@@ -97,6 +101,8 @@ func (e *ExchangeStore) SetAnswer(ctx context.Context, id, sdp string) error {
 	pipeline := e.cl.Pipeline()
 	pipeline.Set(ctx, answerKey, sdp, 0)
 	pipeline.Publish(ctx, answerKey, "sent")
+	pipeline.Expire(ctx, answerKey, objectExpire)
+
 	_, err := pipeline.Exec(ctx)
 
 	return err
@@ -113,6 +119,7 @@ func (e *ExchangeStore) AddOfferICEPeerCandidate(ctx context.Context, id, candid
 	pl := e.cl.Pipeline()
 
 	pl.RPush(ctx, candidatesKey, candidate)
+	pl.ExpireNX(ctx, candidatesKey, objectExpire)
 	pl.Publish(ctx, candidatesKey, "added")
 
 	_, err := pl.Exec(ctx)
@@ -158,6 +165,7 @@ func (e *ExchangeStore) AddAnswerICEPeerCandidate(ctx context.Context, id, candi
 	pl := e.cl.Pipeline()
 
 	pl.RPush(ctx, candidatesKey, candidate)
+	pl.ExpireNX(ctx, candidatesKey, objectExpire)
 	pl.Publish(ctx, candidatesKey, "added")
 
 	_, err := pl.Exec(ctx)
