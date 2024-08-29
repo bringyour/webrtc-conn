@@ -31,8 +31,8 @@ func TestSendAnswer(t *testing.T) {
 
 	req, err := http.NewRequestWithContext(
 		testCtx,
-		"POST",
-		u.JoinPath("abc/answer/sdp/").String(),
+		"PUT",
+		u.JoinPath("abc/answer/sdp").String(),
 		strings.NewReader(`{"type":"answer","sdp":"v=0"}`),
 	)
 	require.NoError(err)
@@ -71,7 +71,7 @@ func TestReceiveAnswer(t *testing.T) {
 	req, err := http.NewRequestWithContext(
 		testCtx,
 		"GET",
-		u.JoinPath("abc/answer/sdp/").String(),
+		u.JoinPath("abc/answer/sdp").String(),
 		nil,
 	)
 	require.NoError(err)
@@ -107,7 +107,7 @@ func TestSendAnswerPeerCandidate(t *testing.T) {
 	req, err := http.NewRequestWithContext(
 		testCtx,
 		"POST",
-		u.JoinPath("abc/answer/peer_candidate/").String(),
+		u.JoinPath("abc/answer/peer_candidates").String(),
 		strings.NewReader(peerCandidateJSON),
 	)
 	require.NoError(err)
@@ -145,7 +145,7 @@ func TestReceiveAnswerPeerCandidate(t *testing.T) {
 	req, err := http.NewRequestWithContext(
 		testCtx,
 		"GET",
-		u.JoinPath("abc/answer/peer_candidates/").String(),
+		u.JoinPath("abc/answer/peer_candidates").String(),
 		nil,
 	)
 	require.NoError(err)

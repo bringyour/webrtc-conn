@@ -44,7 +44,7 @@ func Answer(
 	eg.Go(func() (err error) {
 
 		var offer webrtc.SessionDescription
-		err = co.longPoll(egCtx, "/offer/sdp/", nil, &offer)
+		err = co.longPoll(egCtx, "/offer/sdp", nil, &offer)
 		if err != nil {
 			return fmt.Errorf("cannot get offer: %w", err)
 		}
@@ -63,7 +63,7 @@ func Answer(
 			return fmt.Errorf("cannot marshal answer: %w", err)
 		}
 
-		err = co.post(answerContext, "/answer/sdp/", string(d))
+		err = co.put(answerContext, "/answer/sdp", string(d))
 		if err != nil {
 			return fmt.Errorf("cannot send answer: %w", err)
 		}
@@ -90,7 +90,7 @@ func Answer(
 				return fmt.Errorf("cannot marshal candidate: %w", err)
 			}
 
-			err = co.post(answerContext, "/answer/peer_candidate/", string(d))
+			err = co.post(answerContext, "/answer/peer_candidates", string(d))
 			if err != nil {
 				return fmt.Errorf("cannot send peer candidate: %w", err)
 			}
@@ -104,7 +104,7 @@ func Answer(
 			candidates := []string{}
 			err = co.longPoll(
 				egCtx,
-				"/offer/peer_candidates/",
+				"/offer/peer_candidates",
 				map[string]string{
 					"from": strconv.FormatInt(int64(receivedCandidates), 10),
 				},

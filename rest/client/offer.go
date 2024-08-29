@@ -72,7 +72,7 @@ func Offer(
 	eg.Go(func() (err error) {
 
 		var answer webrtc.SessionDescription
-		err = co.longPoll(egCtx, "/answer/sdp/", nil, &answer)
+		err = co.longPoll(egCtx, "/answer/sdp", nil, &answer)
 		if err != nil {
 			return fmt.Errorf("cannot get answer: %w", err)
 		}
@@ -91,7 +91,7 @@ func Offer(
 			return fmt.Errorf("cannot marshal offer: %w", err)
 		}
 
-		err = co.post(offerContext, "/offer/sdp/", string(d))
+		err = co.put(offerContext, "/offer/sdp", string(d))
 		if err != nil {
 			return fmt.Errorf("cannot send offer: %w", err)
 		}
@@ -118,7 +118,7 @@ func Offer(
 				return fmt.Errorf("cannot marshal candidate: %w", err)
 			}
 
-			err = co.post(offerContext, "/offer/peer_candidate/", string(d))
+			err = co.post(offerContext, "/offer/peer_candidates", string(d))
 			if err != nil {
 				return fmt.Errorf("cannot send candidate: %w", err)
 			}
@@ -132,7 +132,7 @@ func Offer(
 			candidates := []string{}
 			err = co.longPoll(
 				egCtx,
-				"/answer/peer_candidates/",
+				"/answer/peer_candidates",
 				map[string]string{
 					"from": strconv.FormatInt(int64(receivedCandidates), 10),
 				},
@@ -190,6 +190,30 @@ type comm struct {
 func (c *comm) post(ctx context.Context, path string, body string) error {
 
 	req, err := http.NewRequestWithContext(ctx, "POST", c.u.JoinPath(path).String(), strings.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("cannot create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.cl.Do(req)
+	if err != nil {
+		return fmt.Errorf("cannot send request: %w", err)
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	return nil
+
+}
+
+func (c *comm) put(ctx context.Context, path string, body string) error {
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", c.u.JoinPath(path).String(), strings.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("cannot create request: %w", err)
 	}

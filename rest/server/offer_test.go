@@ -31,8 +31,8 @@ func TestSendOffer(t *testing.T) {
 
 	req, err := http.NewRequestWithContext(
 		testCtx,
-		"POST",
-		u.JoinPath("abc/offer/sdp/").String(),
+		"PUT",
+		u.JoinPath("abc/offer/sdp").String(),
 		strings.NewReader(`{"type":"offer","sdp":"v=0"}`),
 	)
 	require.NoError(err)
@@ -71,7 +71,7 @@ func TestReceiveOffer(t *testing.T) {
 	req, err := http.NewRequestWithContext(
 		testCtx,
 		"GET",
-		u.JoinPath("abc/offer/sdp/").String(),
+		u.JoinPath("abc/offer/sdp").String(),
 		nil,
 	)
 	require.NoError(err)
@@ -121,7 +121,7 @@ func TestSendOfferPeerCandidate(t *testing.T) {
 	req, err := http.NewRequestWithContext(
 		testCtx,
 		"POST",
-		u.JoinPath("abc/offer/peer_candidate/").String(),
+		u.JoinPath("abc/offer/peer_candidates").String(),
 		strings.NewReader(peerCandidateJSON),
 	)
 	require.NoError(err)
@@ -159,7 +159,7 @@ func TestReceiveOfferPeerCandidate(t *testing.T) {
 	req, err := http.NewRequestWithContext(
 		testCtx,
 		"GET",
-		u.JoinPath("abc/offer/peer_candidates/").String(),
+		u.JoinPath("abc/offer/peer_candidates").String(),
 		nil,
 	)
 	require.NoError(err)

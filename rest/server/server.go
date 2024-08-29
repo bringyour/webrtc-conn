@@ -70,7 +70,7 @@ func NewHandler(store ExchangeStore) http.Handler {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("POST /{id}/offer/sdp/{$}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("PUT /{id}/offer/sdp", func(w http.ResponseWriter, r *http.Request) {
 		d, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -86,7 +86,7 @@ func NewHandler(store ExchangeStore) http.Handler {
 		}
 	})
 
-	mux.HandleFunc("POST /{id}/offer/peer_candidate/{$}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /{id}/offer/peer_candidates", func(w http.ResponseWriter, r *http.Request) {
 		d, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -102,7 +102,7 @@ func NewHandler(store ExchangeStore) http.Handler {
 		}
 	})
 
-	mux.HandleFunc("GET /{id}/offer/sdp/{$}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /{id}/offer/sdp", func(w http.ResponseWriter, r *http.Request) {
 
 		id := r.PathValue("id")
 
@@ -118,7 +118,7 @@ func NewHandler(store ExchangeStore) http.Handler {
 		w.Write([]byte(sdp))
 	})
 
-	mux.HandleFunc("GET /{id}/offer/peer_candidates/{$}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /{id}/offer/peer_candidates", func(w http.ResponseWriter, r *http.Request) {
 
 		fromString := r.URL.Query().Get("from")
 
@@ -152,7 +152,7 @@ func NewHandler(store ExchangeStore) http.Handler {
 
 	})
 
-	mux.HandleFunc("POST /{id}/answer/sdp/{$}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("PUT /{id}/answer/sdp", func(w http.ResponseWriter, r *http.Request) {
 
 		ctx := r.Context()
 
@@ -171,7 +171,7 @@ func NewHandler(store ExchangeStore) http.Handler {
 		}
 	})
 
-	mux.HandleFunc("POST /{id}/answer/peer_candidate/{$}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /{id}/answer/peer_candidates", func(w http.ResponseWriter, r *http.Request) {
 		d, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -187,7 +187,7 @@ func NewHandler(store ExchangeStore) http.Handler {
 		}
 	})
 
-	mux.HandleFunc("GET /{id}/answer/sdp/{$}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /{id}/answer/sdp", func(w http.ResponseWriter, r *http.Request) {
 
 		id := r.PathValue("id")
 
@@ -203,7 +203,7 @@ func NewHandler(store ExchangeStore) http.Handler {
 		w.Write([]byte(sdp))
 	})
 
-	mux.HandleFunc("GET /{id}/answer/peer_candidates/{$}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /{id}/answer/peer_candidates", func(w http.ResponseWriter, r *http.Request) {
 
 		fromString := r.URL.Query().Get("from")
 
