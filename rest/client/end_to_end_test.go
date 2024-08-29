@@ -64,7 +64,7 @@ func TestEndToEnd(t *testing.T) {
 	var answerReceived string
 
 	wg.Go(func() error {
-		c, err := client.Answer(ctx, s.URL+"/abc/", webrtc.Configuration{})
+		c, err := client.Answer(ctx, s.URL+"/abc/", nil, webrtc.Configuration{})
 		if err != nil {
 			return fmt.Errorf("cannot answer: %w", err)
 		}
@@ -86,7 +86,7 @@ func TestEndToEnd(t *testing.T) {
 	var offerReceived string
 
 	wg.Go(func() error {
-		c, err := client.Offer(ctx, s.URL+"/abc/", webrtc.Configuration{}, false, 0)
+		c, err := client.Offer(ctx, s.URL+"/abc/", nil, webrtc.Configuration{}, false, 0)
 		if err != nil {
 			return fmt.Errorf("cannot offer: %w", err)
 		}

@@ -43,6 +43,7 @@ func contextReceive[T any](ctx context.Context, ch chan T) (T, error) {
 func Offer(
 	ctx context.Context,
 	baseURL string,
+	requestHeader http.Header,
 	config webrtc.Configuration,
 	ordered bool,
 	maxRetransmits uint16,
@@ -72,7 +73,7 @@ func Offer(
 	eg.Go(func() (err error) {
 
 		var answer webrtc.SessionDescription
-		err = co.longPoll(egCtx, "/answer/sdp", nil, &answer)
+		err = co.longPoll(egCtx, "/answer/sdp", requestHeader, nil, &answer)
 		if err != nil {
 			return fmt.Errorf("cannot get answer: %w", err)
 		}
@@ -91,7 +92,7 @@ func Offer(
 			return fmt.Errorf("cannot marshal offer: %w", err)
 		}
 
-		err = co.put(offerContext, "/offer/sdp", string(d))
+		err = co.put(offerContext, "/offer/sdp", requestHeader, string(d))
 		if err != nil {
 			return fmt.Errorf("cannot send offer: %w", err)
 		}
@@ -118,7 +119,7 @@ func Offer(
 				return fmt.Errorf("cannot marshal candidate: %w", err)
 			}
 
-			err = co.post(offerContext, "/offer/peer_candidates", string(d))
+			err = co.post(offerContext, "/offer/peer_candidates", requestHeader, string(d))
 			if err != nil {
 				return fmt.Errorf("cannot send candidate: %w", err)
 			}
@@ -133,6 +134,7 @@ func Offer(
 			err = co.longPoll(
 				egCtx,
 				"/answer/peer_candidates",
+				requestHeader,
 				map[string]string{
 					"from": strconv.FormatInt(int64(receivedCandidates), 10),
 				},
@@ -187,12 +189,14 @@ type comm struct {
 	cl *http.Client
 }
 
-func (c *comm) post(ctx context.Context, path string, body string) error {
+func (c *comm) post(ctx context.Context, path string, requestHeader http.Header, body string) error {
 
 	req, err := http.NewRequestWithContext(ctx, "POST", c.u.JoinPath(path).String(), strings.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("cannot create request: %w", err)
 	}
+
+	mergeIntoHeaders(req.Header, requestHeader)
 
 	req.Header.Set("Content-Type", "application/json")
 
@@ -211,12 +215,14 @@ func (c *comm) post(ctx context.Context, path string, body string) error {
 
 }
 
-func (c *comm) put(ctx context.Context, path string, body string) error {
+func (c *comm) put(ctx context.Context, path string, requestHeader http.Header, body string) error {
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", c.u.JoinPath(path).String(), strings.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("cannot create request: %w", err)
 	}
+
+	mergeIntoHeaders(req.Header, requestHeader)
 
 	req.Header.Set("Content-Type", "application/json")
 
@@ -237,7 +243,7 @@ func (c *comm) put(ctx context.Context, path string, body string) error {
 
 var errPollTimeout = fmt.Errorf("poll timeout")
 
-func (c *comm) longPoll(ctx context.Context, path string, q map[string]string, res any) error {
+func (c *comm) longPoll(ctx context.Context, path string, requestHeader http.Header, q map[string]string, res any) error {
 
 	u := c.u.JoinPath(path)
 	if q != nil {
@@ -249,7 +255,7 @@ func (c *comm) longPoll(ctx context.Context, path string, q map[string]string, r
 	}
 
 	for {
-		err := c.poll(ctx, u.String(), res)
+		err := c.poll(ctx, u.String(), requestHeader, res)
 		if err == errPollTimeout {
 			continue
 		}
@@ -262,11 +268,23 @@ func (c *comm) longPoll(ctx context.Context, path string, q map[string]string, r
 	return nil
 }
 
-func (c *comm) poll(ctx context.Context, u string, res any) error {
+func mergeIntoHeaders(a, b http.Header) {
+	if b == nil {
+		return
+	}
+
+	for k, v := range b {
+		a[k] = append(a[k], v...)
+	}
+}
+
+func (c *comm) poll(ctx context.Context, u string, requestHeader http.Header, res any) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
 		return fmt.Errorf("cannot create request: %w", err)
 	}
+
+	mergeIntoHeaders(req.Header, requestHeader)
 
 	resp, err := c.cl.Do(req)
 	if err != nil {
