@@ -9,58 +9,24 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-type AnswerOptions struct {
+type AnswerSync interface {
+	// AnswerSDP calls the answer function with the offer SDP and returns the answer SDP.
+	// The call must block until the offer is available or the context has been cancelled.
+	AnswerSDP(ctx context.Context, answer func(ctx context.Context, offer webrtc.SessionDescription) (webrtc.SessionDescription, error)) error
 
-	// OfferChan is a channel that we'll receive the offer from.
-	OfferChan <-chan webrtc.SessionDescription
+	// GetOfferPeerCandidates returns the ICE candidates of the other client.
+	// Every call should block until either at least one candidate is available or the context has been cancelled.
+	GetOfferPeerCandidates(ctx context.Context) ([]webrtc.ICECandidate, error)
 
-	// AnswerChan is a channel that we'll send the answer to.
-	AnswerChan chan<- webrtc.SessionDescription
-
-	// RemoteCandidates is a channel on which we will receive the remote candidates.
-	RemoteCandidates <-chan webrtc.ICECandidateInit
-
-	// LocalCandidates is a channel to send the local candidates.
-	LocalCandidates chan<- webrtc.ICECandidateInit
-
-	// OpenTimeout is the timeout for the data channel to open.
-	// If the data channel does not open within this time, the offer will fail.
-	// Default is 15 seconds.
-	OpenTimeout time.Duration
-}
-
-func (o AnswerOptions) openTimeout() time.Duration {
-	if o.OpenTimeout == 0 {
-		return 15 * time.Second
-	}
-
-	return o.OpenTimeout
-}
-
-func (o AnswerOptions) validate() error {
-	if o.OfferChan == nil {
-		return fmt.Errorf("offer channel is required")
-	}
-
-	if o.AnswerChan == nil {
-		return fmt.Errorf("answer channel is required")
-	}
-
-	if o.RemoteCandidates == nil {
-		return fmt.Errorf("remote candidates channel is required")
-	}
-
-	if o.LocalCandidates == nil {
-		return fmt.Errorf("local candidates channel is required")
-	}
-
-	return nil
+	// AddAnswerPeerCandidate adds an ICE candidate for the other client.
+	AddAnswerPeerCandidate(ctx context.Context, candidate webrtc.ICECandidate) error
 }
 
 func Answer(
 	ctx context.Context,
 	config webrtc.Configuration,
-	opts AnswerOptions,
+	as AnswerSync,
+	timeout time.Duration,
 ) (c net.Conn, err error) {
 
 	defer func() {
@@ -77,11 +43,6 @@ func Answer(
 			cancel()
 		}
 	}()
-
-	err = opts.validate()
-	if err != nil {
-		return nil, fmt.Errorf("invalid offer options: %w", err)
-	}
 
 	peerConnection, err := webrtc.NewPeerConnection(config)
 	if err != nil {
@@ -114,11 +75,7 @@ func Answer(
 			return
 		}
 
-		select {
-		case <-ctx.Done():
-			return
-		case opts.LocalCandidates <- candidate.ToJSON():
-		}
+		as.AddAnswerPeerCandidate(ctx, *candidate)
 	})
 
 	opened := make(chan *webrtc.DataChannel, 1)
@@ -129,66 +86,57 @@ func Answer(
 		}
 	})
 
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
-	case offer, ok := <-opts.OfferChan:
-		if !ok {
-			return nil, fmt.Errorf("offer channel closed")
-		}
+	err = as.AnswerSDP(ctx, func(ctx context.Context, offer webrtc.SessionDescription) (webrtc.SessionDescription, error) {
 
 		err = peerConnection.SetRemoteDescription(offer)
 		if err != nil {
-			return nil, fmt.Errorf("cannot set remote description: %w", err)
+			return webrtc.SessionDescription{}, fmt.Errorf("cannot set remote description: %w", err)
 		}
-	}
 
-	answer, err := peerConnection.CreateAnswer(&webrtc.AnswerOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("cannot create answer: %w", err)
-	}
+		answer, err := peerConnection.CreateAnswer(&webrtc.AnswerOptions{})
+		if err != nil {
+			return webrtc.SessionDescription{}, fmt.Errorf("cannot create answer: %w", err)
+		}
 
-	// Send the answer
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
-	case opts.AnswerChan <- answer:
+		err = peerConnection.SetLocalDescription(answer)
+		if err != nil {
+			return webrtc.SessionDescription{}, fmt.Errorf("cannot set local description: %w", err)
+		}
 
-	}
-
-	err = peerConnection.SetLocalDescription(answer)
-	if err != nil {
-		return nil, fmt.Errorf("cannot set local description: %w", err)
-	}
-
-	// Receive the remote candidates
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case candidate, ok := <-opts.RemoteCandidates:
-				if !ok {
-					return
-				}
-				err = peerConnection.AddICECandidate(
-					candidate,
-				)
+		go func() {
+			for {
+				candidates, err := as.GetOfferPeerCandidates(ctx)
 				if err != nil {
 					return
 				}
-			}
-		}
-	}()
 
-	openContext, openCancel := context.WithTimeout(ctx, opts.openTimeout())
+				for _, c := range candidates {
+					err = peerConnection.AddICECandidate(c.ToJSON())
+					if err != nil {
+						return
+					}
+				}
+
+			}
+
+		}()
+
+		return answer, nil
+
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("cannot answer: %w", err)
+	}
+
+	openContext, openCancel := context.WithTimeout(ctx, timeout)
 	defer openCancel()
 
 	var dataChannel *webrtc.DataChannel
 
 	select {
 	case <-openContext.Done():
-		return nil, fmt.Errorf("data channel did not open within %s: %w", opts.openTimeout(), ctx.Err())
+		return nil, fmt.Errorf("data channel did not open within %v: %w", timeout, ctx.Err())
 	case dataChannel = <-opened:
 	}
 

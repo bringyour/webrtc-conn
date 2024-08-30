@@ -19,64 +19,26 @@ type conn struct {
 	ctx          context.Context
 }
 
-type OfferOptions struct {
+type OfferSync interface {
+	// OfferSDP calls the answer function with the offer SDP. The function returns the answer SDP.
+	// The call must block until the answer is available or the context has been cancelled.
+	OfferSDP(ctx context.Context, offer webrtc.SessionDescription) (webrtc.SessionDescription, error)
 
-	// OfferChan is a channel that we'll send the offer to.
-	OfferChan chan<- webrtc.SessionDescription
+	// GetAnswerPeerCandidates returns the ICE candidates of the other client.
+	// Every call should block until either at least one candidate is available or the context has been cancelled.
+	GetAnswerPeerCandidates(ctx context.Context) ([]webrtc.ICECandidate, error)
 
-	// AnswerChan is a channel that we'll receive the answer from.
-	AnswerChan <-chan webrtc.SessionDescription
-
-	// RemoteCandidates is a channel on which we will receive the remote candidates.
-	RemoteCandidates <-chan webrtc.ICECandidateInit
-
-	// LocalCandidates is a channel to send the local candidates.
-	LocalCandidates chan<- webrtc.ICECandidateInit
-
-	// Ordered is a boolean that indicates if the data channel is ordered
-	Ordered bool
-
-	// MaxRetransmits is the maximum number of retransmits
-	MaxRetransmits uint16
-
-	// OpenTimeout is the timeout for the data channel to open.
-	// If the data channel does not open within this time, the offer will fail.
-	// Default is 15 seconds.
-	OpenTimeout time.Duration
-}
-
-func (o OfferOptions) openTimeout() time.Duration {
-	if o.OpenTimeout == 0 {
-		return 15 * time.Second
-	}
-
-	return o.OpenTimeout
-}
-
-func (o OfferOptions) validate() error {
-	if o.OfferChan == nil {
-		return fmt.Errorf("offer channel is required")
-	}
-
-	if o.AnswerChan == nil {
-		return fmt.Errorf("answer channel is required")
-	}
-
-	if o.RemoteCandidates == nil {
-		return fmt.Errorf("remote candidates channel is required")
-	}
-
-	if o.LocalCandidates == nil {
-		return fmt.Errorf("local candidates channel is required")
-	}
-
-	return nil
+	// AddOfferPeerCandidate adds an ICE candidate for the other client.
+	AddOfferPeerCandidate(ctx context.Context, candidate webrtc.ICECandidate) error
 }
 
 func Offer(
 	ctx context.Context,
 	config webrtc.Configuration,
-	opts OfferOptions,
+	os OfferSync,
+	ordered bool,
+	maxRetransmits uint16,
+	openTimeout time.Duration,
 ) (c net.Conn, err error) {
 
 	defer func() {
@@ -93,11 +55,6 @@ func Offer(
 			cancel()
 		}
 	}()
-
-	err = opts.validate()
-	if err != nil {
-		return nil, fmt.Errorf("invalid offer options: %w", err)
-	}
 
 	peerConnection, err := webrtc.NewPeerConnection(config)
 	if err != nil {
@@ -125,11 +82,7 @@ func Offer(
 			return
 		}
 
-		select {
-		case <-ctx.Done():
-			return
-		case opts.LocalCandidates <- candidate.ToJSON():
-		}
+		os.AddOfferPeerCandidate(ctx, *candidate)
 	})
 
 	go func() {
@@ -139,8 +92,8 @@ func Offer(
 
 	// Create a datachannel with label 'data'
 	dataChannel, err := peerConnection.CreateDataChannel("data", &webrtc.DataChannelInit{
-		Ordered:        &opts.Ordered,
-		MaxRetransmits: &opts.MaxRetransmits,
+		Ordered:        &ordered,
+		MaxRetransmits: &maxRetransmits,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cannot create data channel: %w", err)
@@ -152,6 +105,25 @@ func Offer(
 		close(opened)
 	})
 
+	// Receive the remote candidates
+	go func() {
+		for {
+			candidates, err := os.GetAnswerPeerCandidates(ctx)
+			if err != nil {
+				return
+			}
+
+			for _, c := range candidates {
+				err = peerConnection.AddICECandidate(c.ToJSON())
+				if err != nil {
+					return
+				}
+			}
+
+		}
+
+	}()
+
 	offer, err := peerConnection.CreateOffer(&webrtc.OfferOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("cannot create offer: %w", err)
@@ -162,50 +134,17 @@ func Offer(
 		return nil, fmt.Errorf("cannot set local description: %w", err)
 	}
 
-	fmt.Println("Offer created")
-
-	// Send the offer
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
-	case opts.OfferChan <- offer:
+	answer, err := os.OfferSDP(ctx, offer)
+	if err != nil {
+		return nil, fmt.Errorf("cannot get answer: %w", err)
 	}
 
-	// Receive the answer
-	select {
-	case <-ctx.Done():
-		return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
-	case answer, ok := <-opts.AnswerChan:
-
-		if !ok {
-			return nil, fmt.Errorf("answer channel closed")
-		}
-
-		err = peerConnection.SetRemoteDescription(answer)
-
+	err = peerConnection.SetRemoteDescription(answer)
+	if err != nil {
+		return nil, fmt.Errorf("cannot set remote description: %w", err)
 	}
 
-	// Receive the remote candidates
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case candidate, ok := <-opts.RemoteCandidates:
-				if !ok {
-					return
-				}
-				err = peerConnection.AddICECandidate(
-					candidate,
-				)
-				if err != nil {
-					return
-				}
-			}
-		}
-	}()
-
-	openContext, openCancel := context.WithTimeout(ctx, opts.openTimeout())
+	openContext, openCancel := context.WithTimeout(ctx, openTimeout)
 	defer openCancel()
 
 	dataChannel.OnClose(func() {
@@ -228,7 +167,7 @@ func Offer(
 
 	select {
 	case <-openContext.Done():
-		return nil, fmt.Errorf("data channel did not open within %s: %w", opts.openTimeout(), ctx.Err())
+		return nil, fmt.Errorf("data channel did not open within %s: %w", openTimeout, ctx.Err())
 	case <-opened:
 		// Data channel is open
 	}
