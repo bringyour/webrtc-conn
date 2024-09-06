@@ -1,6 +1,6 @@
 module github.com/bringyour/webrtc-conn
 
-go 1.22.5
+go 1.22.0
 
 require (
 	github.com/pion/webrtc/v3 v3.2.51
