@@ -3,7 +3,7 @@ module github.com/bringyour/webrtc-conn
 go 1.22.0
 
 require (
-	github.com/pion/webrtc/v3 v3.2.51
+	github.com/pion/webrtc/v3 v3.3.3
 	github.com/stretchr/testify v1.9.0
 )
 
@@ -13,7 +13,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/pion/datachannel v1.5.8 // indirect
 	github.com/pion/dtls/v2 v2.2.12 // indirect
-	github.com/pion/ice/v2 v2.3.34 // indirect
+	github.com/pion/ice/v2 v2.3.35 // indirect
 	github.com/pion/interceptor v0.1.30 // indirect
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/mdns v0.0.12 // indirect
